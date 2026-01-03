@@ -1,11 +1,9 @@
-"""
-TO INSTALL:
-
-pip install py-cord
-
-"""
-
-import os, sys, discord, logging, dotenv
+import os
+import sys
+import asyncio
+import discord
+import logging
+import dotenv
 from discord.ext import commands
 from utilities.logging_utils import setup_logger
 # from rcon.cogs._server_status import server_status
@@ -32,7 +30,7 @@ print(rcon_pass)
 
 # In this function, we load all the files from the Cogs folder.
 # Cogs are just files that hold our commands.
-def load_cogs():
+async def load_cogs():
     """
     Loads the directories under the /cogs/ folder,
     then digs through those directories and loads the cogs.
@@ -42,16 +40,16 @@ def load_cogs():
 
     for file in os.listdir(COGS_ROOT_PATH):
         if file.endswith(".py") and not file.startswith("_"):
-            # try:
             cog_path = os.path.join(COGS_ROOT_PATH, file)
             logger.debug(f"Loading Cog: {cog_path}")
             try:
-                bot.load_extension(f"cogs.{file[:-3]}")
+                await bot.load_extension(f"cogs.{file[:-3]}")
                 print(f"Loaded Cog: {cog_path}")
             except Exception as e:
                 logger.warning(
                     "Failed to load: {%s}.{%s}, {%s}", COGS_ROOT_PATH, file, e
                 )
+                print(f"Exception loading {file}: {e}")  # Add this for debugging
                 failed_to_load.append(f"{file[:-3]}")
     if failed_to_load:
         logger.warning(
@@ -63,7 +61,7 @@ def load_cogs():
 
 # In this function, we use an argument or env file to load the Bot-Token.
 def load_token_and_run():
-    server_settings_path = "resources"
+    # server_settings_path = "resources"
     # if server_settings_path:
     #     bot.server_settings = Settings(server_settings_path)  # type: ignore
     if len(sys.argv) > 1:
@@ -79,10 +77,13 @@ async def on_ready():
     print(f"{bot.user} [{bot.user.id}] is connected to the following guilds:")
     for guild in bot.guilds:
         print(f"\t- {guild.name}(id: {guild.id})")
-
-    # print("starting status check...")
-    # server_status_object = server_status(bot, server_ip, rcon_port, rcon_pass)
-    # server_status_object.status_check.start()
+    
+    # Sync slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
 
 def main():
@@ -90,7 +91,14 @@ def main():
         level=int(os.getenv("LOGGING_LEVEL", 20)),
         stream_logs=bool(os.getenv("STREAM_LOGS", False)),
     )
-    load_cogs()
+    
+    # Load cogs before running
+    async def startup():
+        async with bot:
+            await load_cogs()
+            await bot.start(os.getenv("DISCORD_TOKEN"))
+
+    asyncio.run(startup())
     load_token_and_run()
 
 
