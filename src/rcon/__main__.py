@@ -7,6 +7,7 @@ import dotenv
 from discord.ext import commands
 from utilities.logging_utils import setup_logger
 # from rcon.cogs._server_status import server_status
+# from rcon.cogs._player_check import player_check
 
 # from cogs.core.server_settings import Settings
 
@@ -22,11 +23,11 @@ bot = commands.Bot(command_prefix=commands.when_mentioned_or(prefix), intents=in
 dotenv.load_dotenv("C:/Users/michelle/Documents/GitHub/RRstatus/.env")
 
 server_ip = os.getenv("SERVER_IP")
-print(server_ip)
+# print(server_ip)
 rcon_port = os.getenv("RCON_PORT")
-print(rcon_port)
+# print(rcon_port)
 rcon_pass = os.getenv("RCON_PASSWORD")
-print(rcon_pass)
+# print(rcon_pass)
 
 # In this function, we load all the files from the Cogs folder.
 # Cogs are just files that hold our commands.
@@ -68,7 +69,8 @@ def load_token_and_run():
         TOKEN = sys.argv[1]
         bot.run(TOKEN)
     else:
-        print(os.getenv("DISCORD_TOKEN"))
+        # print(os.getenv("DISCORD_TOKEN"))
+        print("Using token from .env")
         bot.run(os.getenv("DISCORD_TOKEN"))
 
 
@@ -84,6 +86,12 @@ async def on_ready():
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
+
+    # print("starting events...")
+    # player_check_object = player_check(bot, server_ip, rcon_port, rcon_pass)
+    # player_check_object.check.start()
+    # player_check_object = server_status(bot, server_ip, rcon_port, rcon_pass)
+    # player_check_object.status_check.start()
 
 
 def main():

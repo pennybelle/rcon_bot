@@ -16,14 +16,6 @@ class rcon_command(commands.Cog):
         self.password = rcon_pass
         self.error_count = 0
 
-        # # Test connection when cog loads
-        # try:
-        #     with Client(self.ip, self.port, passwd=self.password) as client:
-        #         response = client.run('players')
-        #         print("status response:", response)
-        # except Exception as e:
-        #     print(f"RCON connection failed: {e}")
-
     @app_commands.command(name="active_players", description="Get list of active players")
     @app_commands.default_permissions(administrator=True)
     async def active_players(self, interaction: discord.Interaction):
