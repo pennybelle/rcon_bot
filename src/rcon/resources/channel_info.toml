@@ -1,0 +1,45 @@
+############
+#  Server  #
+############
+[server.info]
+name = 'Refined RP'
+invite = 'https://discord.gg/refinedrp'
+id = 1222314076357656596
+
+############
+# Channels #
+############
+[channels.moderation]
+rules_channel = 1222333111434743958
+server_support = 1222375659188256909
+faction_ticket = 1222664310765916281
+
+[channels.normal_channel]
+general_channel = 1222314076357656599
+media_channel = 1222328408038441050
+help_channel = 1222328448505086055
+bot_channel = 1222338319120338994
+
+[channels.log_channel]
+logs_channel = 1222560582759223327
+
+#############
+#   Roles   #
+#############
+[user_roles.admin]
+developer = 1222316197668716634
+counsel = 1222339048903807107
+admin = 1222383605297184768
+moderator = 1222382416048685117
+bot_master = 1222358832341192794
+faction_master = 1237811282850349106
+staff = 1222315006683779152
+bot = 1222358187584389172
+refined_bot = 1222536816255832168
+
+[user_roles.elevated]
+server_donator = 1222395485747154955
+server_booster = 1222341001503309824
+
+[user_roles.verified]
+verified = 1222522070794244127

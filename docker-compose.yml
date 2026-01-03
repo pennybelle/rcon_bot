@@ -1,0 +1,7 @@
+services:
+  rcon_bot:
+    build: .
+    env_file: .env
+    image: rcon:${TAG}
+    container_name: rcon_${ENVIRONMENT}
+    restart: always
