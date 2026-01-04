@@ -6,9 +6,9 @@ import logging
 import dotenv
 from discord.ext import commands
 from utilities.logging_utils import setup_logger
-# from rcon.cogs._server_status import server_status
-# from rcon.cogs._player_check import player_check
-from rcon.cogs.player_whitelist import PlayerWhitelist
+# from cogs._server_status import server_status
+# from cogs._player_check import player_check
+from cogs.player_whitelist import PlayerWhitelist
 
 # from cogs.core.server_settings import Settings
 
