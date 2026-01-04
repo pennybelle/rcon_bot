@@ -63,9 +63,9 @@ class ADMFileHandler(FileSystemEventHandler):
 class PlayerWhitelist(commands.Cog):
     """Monitors DayZ server logs and maintains a player whitelist"""
     
-    def __init__(self, bot, logs_base_directory):
+    def __init__(self, bot, adm_log_directory):
         self.bot = bot
-        self.logs_base_directory = logs_base_directory
+        self.adm_log_directory = adm_log_directory
         self.whitelist_file = WHITELIST_FILE
         self.whitelist = self.load_whitelist()
         self.observer = None
@@ -80,19 +80,19 @@ class PlayerWhitelist(commands.Cog):
     def get_most_recent_session_directory(self):
         """Find the most recently created session directory in the logs folder"""
         try:
-            if not os.path.exists(self.logs_base_directory):
-                logger.error(f"Logs base directory does not exist: {self.logs_base_directory}")
+            if not os.path.exists(self.adm_log_directory):
+                logger.error(f"Logs base directory does not exist: {self.adm_log_directory}")
                 return None
             
             # Get all subdirectories
             subdirs = [
-                os.path.join(self.logs_base_directory, d)
-                for d in os.listdir(self.logs_base_directory)
-                if os.path.isdir(os.path.join(self.logs_base_directory, d))
+                os.path.join(self.adm_log_directory, d)
+                for d in os.listdir(self.adm_log_directory)
+                if os.path.isdir(os.path.join(self.adm_log_directory, d))
             ]
             
             if not subdirs:
-                logger.warning(f"No session directories found in: {self.logs_base_directory}")
+                logger.warning(f"No session directories found in: {self.adm_log_directory}")
                 return None
             
             # Sort by creation time, get the most recent
@@ -325,14 +325,14 @@ class PlayerWhitelist(commands.Cog):
     
     async def initial_setup(self):
         """Initial setup - find and start monitoring the most recent session"""
-        logger.info(f"Starting initial setup for logs directory: {self.logs_base_directory}")
+        logger.info(f"Starting initial setup for logs directory: {self.adm_log_directory}")
         
-        if not os.path.exists(self.logs_base_directory):
-            logger.error(f"Base logs directory does NOT exist: {self.logs_base_directory}")
+        if not os.path.exists(self.adm_log_directory):
+            logger.error(f"Base logs directory does NOT exist: {self.adm_log_directory}")
             logger.error("Please verify the path and ensure it's properly mounted!")
             return
         
-        logger.info(f"Base logs directory exists: {self.logs_base_directory}")
+        logger.info(f"Base logs directory exists: {self.adm_log_directory}")
         
         # Find the most recent session directory
         most_recent = self.get_most_recent_session_directory()
@@ -362,16 +362,15 @@ class PlayerWhitelist(commands.Cog):
 async def setup(bot):
     """Setup function called when loading the cog"""
     # Get the base logs directory from environment
-    logs_base_directory = os.getenv("LOGS_BASE_DIRECTORY")
+    adm_log_directory = os.getenv("ADM_LOG_DIRECTORY")
     
-    if not logs_base_directory:
-        logger.error("LOGS_BASE_DIRECTORY environment variable not set!")
-        logger.error("Add LOGS_BASE_DIRECTORY=C:/Users/USER/Desktop/om/servers/test/logs to your .env file")
+    if not adm_log_directory:
+        logger.error("ADM_LOG_DIRECTORY environment variable not set!")
         return
     
-    logger.info(f"LOGS_BASE_DIRECTORY set to: {logs_base_directory}")
+    logger.info(f"ADM_LOG_DIRECTORY set to: {adm_log_directory}")
     
-    cog = PlayerWhitelist(bot, logs_base_directory)
+    cog = PlayerWhitelist(bot, adm_log_directory)
     await bot.add_cog(cog)
     
     # Start monitoring after cog is added
