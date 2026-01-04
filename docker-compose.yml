@@ -1,6 +1,9 @@
 services:
   rcon_bot:
     build: .
+    volumes:
+      # Mount the DayZ logs directory as read-only
+      - C:/Users/michelle/Desktop/om/servers/test/logs:/app/logs:ro
     env_file: .env
     image: rcon:${TAG}
     container_name: rcon_${ENVIRONMENT}

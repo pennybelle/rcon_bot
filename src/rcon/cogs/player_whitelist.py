@@ -4,15 +4,15 @@ import json
 import logging
 import asyncio
 from datetime import datetime
-from discord.ext import commands
-from watchdog.observers import Observer
+from discord.ext import commands, tasks
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 
 logger = logging.getLogger(__name__)
 
-# Configuration - adjust these paths as needed
-# ADM_LOG_PATH = r"C:\path\to\your\DayZServer_x64_*.ADM"  # Update this path
+# Configuration
 WHITELIST_FILE = "player_whitelist.json"
+POLL_INTERVAL = 5  # Check every 5 seconds (adjust as needed)
 
 
 class ADMFileHandler(FileSystemEventHandler):
@@ -39,7 +39,6 @@ class ADMFileHandler(FileSystemEventHandler):
             
             # Initialize position for this file if not tracked
             if file_path not in self.last_position:
-                # Start from beginning for new files
                 self.last_position[file_path] = 0
             
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -71,7 +70,6 @@ class PlayerWhitelist(commands.Cog):
         self.observer = None
         
         # Pattern to match player connection logs
-        # Example: Player "dog"(id=btlXKA7MSA03Wdzbm4bQGXZI0rx1MQm7OEcGf0keo1o=) is connected
         self.connection_pattern = re.compile(
             r'Player "([^"]+)"\(id=([^)]+)\) is connected'
         )
@@ -136,7 +134,6 @@ class PlayerWhitelist(commands.Cog):
             self.save_whitelist()
             
             # Optional: Send notification to Discord channel
-            # Uncomment and configure if you want Discord notifications
             # channel_id = 1247743821236928637  # Replace with your channel ID
             # channel = self.bot.get_channel(channel_id)
             # if channel:
@@ -145,34 +142,50 @@ class PlayerWhitelist(commands.Cog):
     
     async def start_monitoring(self):
         """Start monitoring the ADM directory"""
+        logger.info(f"Attempting to access ADM directory: {self.adm_directory}")
+        
         if not os.path.exists(self.adm_directory):
             logger.error(f"ADM directory does not exist: {self.adm_directory}")
+            logger.error("Please ensure the directory is mounted correctly in Docker")
+            return
+        
+        # List files to verify access
+        try:
+            files = os.listdir(self.adm_directory)
+            adm_files = [f for f in files if f.endswith('.ADM')]
+            logger.info(f"Found {len(adm_files)} ADM files in directory")
+            for f in adm_files:
+                logger.info(f"  - {f}")
+        except Exception as e:
+            logger.error(f"Error listing directory: {e}")
             return
         
         # Initialize file positions for existing ADM files
-        for folder in os.listdir(self.adm_directory):
-            for file in folder:
-                if file.endswith('.ADM'):
-                    file_path = os.path.join(self.adm_directory, file)
-                    try:
-                        # Start from end of existing files to only catch new entries
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            f.seek(0, 2)  # Seek to end
-                            if not hasattr(self, '_handler'):
-                                self._handler = ADMFileHandler(self.process_log_lines)
-                            self._handler.last_position[file_path] = f.tell()
-                        logger.info(f"Initialized monitoring for: {file_path}")
-                    except Exception as e:
-                        logger.error(f"Error initializing file {file_path}: {e}")
+        for file in os.listdir(self.adm_directory):
+            if file.endswith('.ADM'):
+                file_path = os.path.join(self.adm_directory, file)
+                try:
+                    # Start from end of existing files to only catch new entries
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        f.seek(0, 2)  # Seek to end
+                        if not hasattr(self, '_handler'):
+                            self._handler = ADMFileHandler(self.process_log_lines)
+                        self._handler.last_position[file_path] = f.tell()
+                    logger.info(f"Initialized monitoring for: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error initializing file {file_path}: {e}")
         
-        # Set up the observer
+        # IMPORTANT: Use PollingObserver instead of Observer for Docker compatibility
         event_handler = ADMFileHandler(self.process_log_lines)
         self._handler = event_handler
-        self.observer = Observer()
+        
+        # PollingObserver works across Docker mounts by checking file stats periodically
+        self.observer = PollingObserver(timeout=POLL_INTERVAL)
         self.observer.schedule(event_handler, self.adm_directory, recursive=False)
         self.observer.start()
         
-        logger.info(f"Started monitoring ADM files in: {self.adm_directory}")
+        logger.info(f"Started POLLING monitoring of ADM files in: {self.adm_directory}")
+        logger.info(f"Polling interval: {POLL_INTERVAL} seconds")
     
     def stop_monitoring(self):
         """Stop monitoring"""
@@ -188,8 +201,15 @@ class PlayerWhitelist(commands.Cog):
 
 async def setup(bot):
     """Setup function called when loading the cog"""
-    # Get ADM directory from environment or use default
+    # Get ADM directory from environment
     adm_directory = os.getenv("ADM_LOG_DIRECTORY")
+    
+    if not adm_directory:
+        logger.error("ADM_LOG_DIRECTORY environment variable not set!")
+        logger.error("Add ADM_LOG_DIRECTORY=/path/to/logs to your .env file")
+        return
+    
+    logger.info(f"ADM_LOG_DIRECTORY set to: {adm_directory}")
     
     cog = PlayerWhitelist(bot, adm_directory)
     await bot.add_cog(cog)
