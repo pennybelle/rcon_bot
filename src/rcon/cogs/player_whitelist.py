@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 WHITELIST_FILE = "player_whitelist.json"
-POLL_INTERVAL = 5  # Check every 5 seconds (adjust as needed)
+POLL_INTERVAL = 5  # Check every 5 seconds
+CHECK_NEW_DIR_INTERVAL = 30  # Check for new session directories every 30 seconds
 
 
 class ADMFileHandler(FileSystemEventHandler):
@@ -62,17 +63,49 @@ class ADMFileHandler(FileSystemEventHandler):
 class PlayerWhitelist(commands.Cog):
     """Monitors DayZ server logs and maintains a player whitelist"""
     
-    def __init__(self, bot, adm_directory):
+    def __init__(self, bot, logs_base_directory):
         self.bot = bot
-        self.adm_directory = adm_directory
+        self.logs_base_directory = logs_base_directory
         self.whitelist_file = WHITELIST_FILE
         self.whitelist = self.load_whitelist()
         self.observer = None
+        self.current_session_dir = None
+        self._handler = None
         
         # Pattern to match player connection logs
         self.connection_pattern = re.compile(
             r'Player "([^"]+)"\(id=([^)]+)\) is connected'
         )
+    
+    def get_most_recent_session_directory(self):
+        """Find the most recently created session directory in the logs folder"""
+        try:
+            if not os.path.exists(self.logs_base_directory):
+                logger.error(f"Logs base directory does not exist: {self.logs_base_directory}")
+                return None
+            
+            # Get all subdirectories
+            subdirs = [
+                os.path.join(self.logs_base_directory, d)
+                for d in os.listdir(self.logs_base_directory)
+                if os.path.isdir(os.path.join(self.logs_base_directory, d))
+            ]
+            
+            if not subdirs:
+                logger.warning(f"No session directories found in: {self.logs_base_directory}")
+                return None
+            
+            # Sort by creation time, get the most recent
+            most_recent = max(subdirs, key=os.path.getctime)
+            
+            logger.info(f"Most recent session directory: {most_recent}")
+            logger.info(f"Created: {datetime.fromtimestamp(os.path.getctime(most_recent))}")
+            
+            return most_recent
+            
+        except Exception as e:
+            logger.error(f"Error finding most recent session directory: {e}")
+            return None
     
     def load_whitelist(self):
         """Load existing whitelist from file"""
@@ -86,6 +119,34 @@ class PlayerWhitelist(commands.Cog):
                 logger.error(f"Error loading whitelist: {e}")
                 return {}
         return {}
+    
+    def get_most_recent_session_directory(self):
+        """Find the most recently created session directory"""
+        try:
+            if not os.path.exists(self.adm_directory):
+                logger.error(f"Base directory does not exist: {self.adm_directory}")
+                return None
+            
+            # Get all subdirectories
+            subdirs = [
+                os.path.join(self.adm_directory, d)
+                for d in os.listdir(self.adm_directory)
+                if os.path.isdir(os.path.join(self.adm_directory, d))
+            ]
+            
+            if not subdirs:
+                logger.warning(f"No session directories found in: {self.adm_directory}")
+                return None
+            
+            # Get the most recent by creation time
+            most_recent = max(subdirs, key=os.path.getctime)
+            logger.info(f"Most recent session directory: {most_recent}")
+            
+            return most_recent
+            
+        except Exception as e:
+            logger.error(f"Error finding most recent session directory: {e}")
+            return None
     
     def save_whitelist(self):
         """Save whitelist to file"""
@@ -138,81 +199,180 @@ class PlayerWhitelist(commands.Cog):
             # channel = self.bot.get_channel(channel_id)
             # if channel:
             #     for name, pid in new_players:
-            #         await channel.send(f"🆕 New player whitelisted: **{name}**")
+            #         await channel.send(f"New player whitelisted: **{name}**")
     
-    async def start_monitoring(self):
-        """Start monitoring the ADM directory"""
-        logger.info(f"Attempting to access ADM directory: {self.adm_directory}")
+    
+    @tasks.loop(seconds=30)
+    async def check_for_new_session(self):
+        """Check periodically for new session directories"""
+        most_recent = self.get_most_recent_session_directory()
         
-        if not os.path.exists(self.adm_directory):
-            logger.error(f"ADM directory does not exist: {self.adm_directory}")
-            logger.error("Please ensure the directory is mounted correctly in Docker")
-            return
+        if most_recent and most_recent != self.current_session_dir:
+            logger.info(f"New session directory detected: {most_recent}")
+            logger.info(f"Switching from {self.current_session_dir}")
+            
+            # Stop current observer
+            if self.observer:
+                self.observer.stop()
+                self.observer.join()
+                self.observer = None
+            
+            # Update current session
+            self.current_session_dir = most_recent
+            
+            # Start monitoring the new directory
+            try:
+                files = os.listdir(most_recent)
+                adm_files = [f for f in files if f.endswith('.ADM')]
+                logger.info(f"Found {len(adm_files)} ADM files in new session")
+                
+                # Initialize file positions for ADM files in new session
+                for file in adm_files:
+                    file_path = os.path.join(most_recent, file)
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        f.seek(0, 2)
+                        self._handler.last_position[file_path] = f.tell()
+                    logger.info(f"Initialized monitoring for: {file_path}")
+                
+                # Start new observer
+                self.observer = PollingObserver(timeout=POLL_INTERVAL)
+                self.observer.schedule(self._handler, most_recent, recursive=False)
+                self.observer.start()
+                
+                logger.info(f"Now monitoring: {most_recent}")
+            except Exception as e:
+                logger.error(f"Error switching to new session: {e}")
+    
+    @check_for_new_session.before_loop
+    async def before_check_new_session(self):
+        """Wait for bot to be ready"""
+        await self.bot.wait_until_ready()
+    
+    def stop_monitoring(self):
+        """Stop the current observer"""
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+            self.observer = None
+            logger.info("Stopped monitoring")
+    
+    async def start_monitoring_directory(self, session_dir):
+        """Start monitoring a specific session directory"""
+        if not os.path.exists(session_dir):
+            logger.error(f"Session directory does not exist: {session_dir}")
+            return False
         
-        # List files to verify access
+        # List ADM files to verify access
         try:
-            files = os.listdir(self.adm_directory)
+            files = os.listdir(session_dir)
             adm_files = [f for f in files if f.endswith('.ADM')]
-            logger.info(f"Found {len(adm_files)} ADM files in directory")
+            logger.info(f"Found {len(adm_files)} ADM files in {session_dir}")
             for f in adm_files:
                 logger.info(f"  - {f}")
         except Exception as e:
             logger.error(f"Error listing directory: {e}")
-            return
+            return False
         
         # Initialize file positions for existing ADM files
-        for file in os.listdir(self.adm_directory):
+        for file in os.listdir(session_dir):
             if file.endswith('.ADM'):
-                file_path = os.path.join(self.adm_directory, file)
+                file_path = os.path.join(session_dir, file)
                 try:
                     # Start from end of existing files to only catch new entries
                     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                         f.seek(0, 2)  # Seek to end
-                        if not hasattr(self, '_handler'):
+                        if not self._handler:
                             self._handler = ADMFileHandler(self.process_log_lines)
                         self._handler.last_position[file_path] = f.tell()
                     logger.info(f"Initialized monitoring for: {file_path}")
                 except Exception as e:
                     logger.error(f"Error initializing file {file_path}: {e}")
         
-        # IMPORTANT: Use PollingObserver instead of Observer for Docker compatibility
-        event_handler = ADMFileHandler(self.process_log_lines)
-        self._handler = event_handler
+        # Create event handler if it doesn't exist
+        if not self._handler:
+            self._handler = ADMFileHandler(self.process_log_lines)
         
-        # PollingObserver works across Docker mounts by checking file stats periodically
+        # Use PollingObserver for Docker compatibility
         self.observer = PollingObserver(timeout=POLL_INTERVAL)
-        self.observer.schedule(event_handler, self.adm_directory, recursive=False)
+        self.observer.schedule(self._handler, session_dir, recursive=False)
         self.observer.start()
         
-        logger.info(f"Started POLLING monitoring of ADM files in: {self.adm_directory}")
+        self.current_session_dir = session_dir
+        logger.info(f"Started POLLING monitoring of: {session_dir}")
         logger.info(f"Polling interval: {POLL_INTERVAL} seconds")
+        
+        return True
     
-    def stop_monitoring(self):
-        """Stop monitoring"""
-        if self.observer:
-            self.observer.stop()
-            self.observer.join()
-            logger.info("Stopped monitoring ADM files")
+    @tasks.loop(seconds=CHECK_NEW_DIR_INTERVAL)
+    async def check_for_new_session(self):
+        """Periodically check if a new session directory has been created"""
+        most_recent = self.get_most_recent_session_directory()
+        
+        if most_recent and most_recent != self.current_session_dir:
+            logger.info(f"New session directory detected: {most_recent}")
+            logger.info(f"Switching from {self.current_session_dir} to {most_recent}")
+            
+            # Stop current monitoring
+            self.stop_monitoring()
+            
+            # Start monitoring new directory
+            await self.start_monitoring_directory(most_recent)
+    
+    @check_for_new_session.before_loop
+    async def before_check_new_session(self):
+        """Wait for bot to be ready before starting the loop"""
+        await self.bot.wait_until_ready()
+    
+    async def initial_setup(self):
+        """Initial setup - find and start monitoring the most recent session"""
+        logger.info(f"Starting initial setup for logs directory: {self.logs_base_directory}")
+        
+        if not os.path.exists(self.logs_base_directory):
+            logger.error(f"Base logs directory does NOT exist: {self.logs_base_directory}")
+            logger.error("Please verify the path and ensure it's properly mounted!")
+            return
+        
+        logger.info(f"Base logs directory exists: {self.logs_base_directory}")
+        
+        # Find the most recent session directory
+        most_recent = self.get_most_recent_session_directory()
+        
+        if not most_recent:
+            logger.warning("No session directories found. Waiting for server to create one...")
+            return
+        
+        # Start monitoring the most recent directory
+        success = await self.start_monitoring_directory(most_recent)
+        
+        if success:
+            # Start the periodic check for new sessions
+            self.check_for_new_session.start()
+        else:
+            logger.error("Failed to start monitoring. Will retry when new session is detected.")
     
     def cog_unload(self):
         """Cleanup when cog is unloaded"""
         self.stop_monitoring()
+        if self.check_for_new_session.is_running():
+            self.check_for_new_session.cancel()
+        if self.check_for_new_session.is_running():
+            self.check_for_new_session.cancel()
 
 
 async def setup(bot):
     """Setup function called when loading the cog"""
-    # Get ADM directory from environment
-    adm_directory = os.getenv("ADM_LOG_DIRECTORY")
+    # Get the base logs directory from environment
+    logs_base_directory = os.getenv("LOGS_BASE_DIRECTORY")
     
-    if not adm_directory:
-        logger.error("ADM_LOG_DIRECTORY environment variable not set!")
-        logger.error("Add ADM_LOG_DIRECTORY=/path/to/logs to your .env file")
+    if not logs_base_directory:
+        logger.error("LOGS_BASE_DIRECTORY environment variable not set!")
+        logger.error("Add LOGS_BASE_DIRECTORY=C:/Users/USER/Desktop/om/servers/test/logs to your .env file")
         return
     
-    logger.info(f"ADM_LOG_DIRECTORY set to: {adm_directory}")
+    logger.info(f"LOGS_BASE_DIRECTORY set to: {logs_base_directory}")
     
-    cog = PlayerWhitelist(bot, adm_directory)
+    cog = PlayerWhitelist(bot, logs_base_directory)
     await bot.add_cog(cog)
     
     # Start monitoring after cog is added
-    await cog.start_monitoring()
+    await cog.initial_setup()
