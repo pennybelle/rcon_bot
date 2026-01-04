@@ -8,6 +8,7 @@ from discord.ext import commands
 from utilities.logging_utils import setup_logger
 # from rcon.cogs._server_status import server_status
 # from rcon.cogs._player_check import player_check
+from rcon.cogs.player_whitelist import PlayerWhitelist
 
 # from cogs.core.server_settings import Settings
 
@@ -88,6 +89,8 @@ async def on_ready():
         print(f"Failed to sync commands: {e}")
 
     # print("starting events...")
+    player_whitelist_object = PlayerWhitelist(bot)
+    player_whitelist_object.check_for_new_session.start()
     # player_check_object = player_check(bot, server_ip, rcon_port, rcon_pass)
     # player_check_object.check.start()
     # player_check_object = server_status(bot, server_ip, rcon_port, rcon_pass)
