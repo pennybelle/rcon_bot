@@ -29,6 +29,7 @@ rcon_port = os.getenv("RCON_PORT")
 # print(rcon_port)
 rcon_pass = os.getenv("RCON_PASSWORD")
 # print(rcon_pass)
+adm_directory = os.getenv("ADM_LOG_DIRECTORY")
 
 # In this function, we load all the files from the Cogs folder.
 # Cogs are just files that hold our commands.
@@ -89,7 +90,7 @@ async def on_ready():
         print(f"Failed to sync commands: {e}")
 
     # print("starting events...")
-    player_whitelist_object = PlayerWhitelist(bot)
+    player_whitelist_object = PlayerWhitelist(bot, adm_directory)
     player_whitelist_object.check_for_new_session.start()
     # player_check_object = player_check(bot, server_ip, rcon_port, rcon_pass)
     # player_check_object.check.start()
